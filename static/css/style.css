@@ -3,6 +3,7 @@
   --bg-secondary: #131b2e;
   --bg-card: rgba(19, 27, 46, 0.75);
   --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-active: rgba(99, 102, 241, 0.4);
   
   --primary: #6366f1;
   --primary-hover: #4f46e5;
@@ -102,7 +103,7 @@ header {
 /* Main Container */
 main {
   flex: 1;
-  max-width: 560px;
+  max-width: 540px;
   width: 100%;
   margin: 0 auto;
   padding: 2.5rem 1rem;
@@ -128,7 +129,11 @@ main {
 
 .tab-btn {
   flex: 1;
-  padding: 0.6rem 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0;
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--text-muted);
@@ -146,6 +151,15 @@ main {
 .tab-btn.active {
   color: #ffffff;
   background: var(--primary);
+}
+
+.room-count-badge {
+  background: var(--accent-emerald);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-full);
 }
 
 /* Sections */
@@ -263,20 +277,83 @@ main {
   color: var(--accent-rose);
 }
 
-/* Forms */
-.form-grid-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+/* Available Rooms List */
+.rooms-container {
+  display: flex;
+  flex-direction: column;
   gap: 0.75rem;
-  margin-top: 1.25rem;
 }
 
-@media (max-width: 500px) {
-  .form-grid-2 {
-    grid-template-columns: 1fr;
-  }
+.room-card-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.1rem;
+  background: rgba(11, 15, 25, 0.6);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-base);
+  cursor: pointer;
 }
 
+.room-card-item:hover {
+  border-color: var(--border-active);
+  background: rgba(22, 32, 58, 0.75);
+  transform: translateY(-1px);
+}
+
+.room-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.room-card-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.room-card-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.room-unlock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.room-card-item:hover .room-unlock-btn {
+  background: var(--primary);
+  color: white;
+}
+
+.empty-state {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.empty-state p {
+  font-size: 0.95rem;
+  font-weight: 500;
+  margin-bottom: 0.35rem;
+}
+
+/* Forms */
 .form-group {
   display: flex;
   flex-direction: column;
@@ -297,12 +374,12 @@ main {
 
 .form-input {
   width: 100%;
-  padding: 0.65rem 0.75rem;
+  padding: 0.7rem 0.85rem;
   background: rgba(11, 15, 25, 0.7);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   color: var(--text-main);
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   outline: none;
   transition: all var(--transition-fast);
 }
@@ -314,26 +391,6 @@ main {
 
 .form-input::placeholder {
   color: var(--text-subtle);
-}
-
-.btn-generate {
-  position: absolute;
-  right: 4px;
-  top: 4px;
-  bottom: 4px;
-  padding: 0 0.6rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  background: rgba(99, 102, 241, 0.15);
-  color: #818cf8;
-  border: 1px solid rgba(99, 102, 241, 0.25);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.btn-generate:hover {
-  background: var(--primary);
-  color: white;
 }
 
 /* Buttons */
@@ -350,11 +407,6 @@ main {
   border: none;
   transition: all var(--transition-fast);
   text-decoration: none;
-}
-
-.btn-sm {
-  padding: 0.4rem 0.65rem;
-  font-size: 0.8rem;
 }
 
 .btn-primary {
@@ -410,21 +462,13 @@ main {
   gap: 0.75rem;
 }
 
-.room-code-val {
-  font-family: monospace;
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  color: var(--accent-cyan);
-}
-
 /* Status Pill */
 .peer-status-pill {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   background: rgba(11, 15, 25, 0.6);
-  padding: 0.5rem 0.75rem;
+  padding: 0.45rem 0.75rem;
   border-radius: var(--radius-sm);
   font-size: 0.85rem;
   border: 1px solid var(--border-subtle);
@@ -505,7 +549,7 @@ main {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   padding: 1.5rem;
-  max-width: 320px;
+  max-width: 360px;
   width: 100%;
   text-align: center;
   position: relative;
@@ -520,14 +564,6 @@ main {
   color: var(--text-muted);
   font-size: 1.25rem;
   cursor: pointer;
-}
-
-.qr-canvas-container {
-  margin: 0.75rem auto 0;
-  padding: 0.5rem;
-  background: white;
-  border-radius: var(--radius-sm);
-  display: inline-block;
 }
 
 /* Toasts */

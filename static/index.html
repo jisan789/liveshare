@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LiveShare &bull; P2P File Transfer</title>
+  <title>LiveShare &bull; Direct P2P File Transfer</title>
   
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -17,7 +17,7 @@
 
   <!-- Top Header -->
   <header>
-    <a href="/" class="logo-area" id="logo-btn">
+    <a href="/" class="logo-area">
       <div class="logo-icon">
         <svg viewBox="0 0 24 24">
           <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242M12 12v9m-4-4 4 4 4-4"/>
@@ -33,8 +33,11 @@
     <!-- Tab Switcher -->
     <div class="tabs-container">
       <div class="tab-nav">
-        <button class="tab-btn active" id="tab-send-btn">Send</button>
-        <button class="tab-btn" id="tab-receive-btn">Receive</button>
+        <button class="tab-btn active" id="tab-send-btn">Send Files</button>
+        <button class="tab-btn" id="tab-receive-btn">
+          Receive
+          <span class="room-count-badge" id="rooms-count-badge" style="display: none;">0</span>
+        </button>
       </div>
     </div>
 
@@ -60,25 +63,15 @@
         <!-- Selected Files List -->
         <div id="file-list" class="file-list-container"></div>
 
-        <!-- Room & Password Config -->
-        <div class="form-grid-2">
-          <div class="form-group">
-            <label class="form-label" for="send-room-code">Room Code</label>
-            <div class="input-container">
-              <input type="text" id="send-room-code" class="form-input" placeholder="e.g. SKY-742" autocomplete="off" style="text-transform: uppercase;">
-              <button type="button" class="btn-generate" id="btn-gen-code">New</button>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" for="send-password">Set Password</label>
-            <div class="input-container">
-              <input type="password" id="send-password" class="form-input" placeholder="Required for receiver" autocomplete="new-password">
-            </div>
+        <!-- Password Only Input -->
+        <div class="form-group" style="margin-top: 1.25rem;">
+          <label class="form-label" for="send-password">Set Room Password</label>
+          <div class="input-container">
+            <input type="password" id="send-password" class="form-input" placeholder="Enter password for receiver" autocomplete="new-password">
           </div>
         </div>
 
-        <button class="btn btn-primary btn-block" id="btn-start-share" disabled style="margin-top: 1.5rem;">
+        <button class="btn btn-primary btn-block" id="btn-start-share" disabled style="margin-top: 1.25rem;">
           Start Sharing
         </button>
       </div>
@@ -87,20 +80,17 @@
       <div class="card glass session-card" id="sender-active-session" style="display: none;">
         <div class="session-header">
           <div>
-            <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Share Code</span>
-            <div class="room-code-val" id="display-room-code">---</div>
+            <span style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">Share Status</span>
+            <div style="font-size: 1.2rem; font-weight: 700; color: var(--accent-emerald);">Live &amp; Discoverable</div>
           </div>
-          
-          <div style="display: flex; gap: 0.5rem;">
-            <button class="btn btn-secondary btn-sm" id="btn-copy-code" title="Copy Code">Copy Code</button>
-            <button class="btn btn-secondary btn-sm" id="btn-copy-link" title="Copy Link">Copy Link</button>
-            <button class="btn btn-secondary btn-sm" id="btn-show-qr" title="QR Code">QR</button>
+          <div class="peer-status-pill" id="sender-peer-status">
+            <div class="pulse-ring waiting"></div>
+            <span class="status-text">Waiting for receiver...</span>
           </div>
         </div>
 
-        <div class="peer-status-pill" id="sender-peer-status">
-          <div class="pulse-ring waiting"></div>
-          <span class="status-text">Waiting for receiver to connect...</span>
+        <div style="font-size: 0.85rem; color: var(--text-muted); background: rgba(11, 15, 25, 0.5); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+          Your share is visible to receivers on the <strong>Receive</strong> tab. They will be prompted to enter your password to connect.
         </div>
 
         <!-- Sender Transfer Progress -->
@@ -119,7 +109,7 @@
         </div>
 
         <button class="btn btn-danger btn-block" id="btn-stop-share">
-          End Session
+          End Share Session
         </button>
       </div>
 
@@ -128,36 +118,30 @@
     <!-- ==================== RECEIVE SECTION ==================== -->
     <section id="receive-section" class="tab-content">
       
-      <!-- Receiver Config Card -->
+      <!-- Available Rooms List Card -->
       <div class="card glass" id="receiver-config-card">
-        <div class="form-grid-2">
-          <div class="form-group">
-            <label class="form-label" for="receive-room-code">Room Code</label>
-            <div class="input-container">
-              <input type="text" id="receive-room-code" class="form-input" placeholder="e.g. SKY-742" style="text-transform: uppercase;">
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" for="receive-password">Password</label>
-            <div class="input-container">
-              <input type="password" id="receive-password" class="form-input" placeholder="Enter password">
-            </div>
-          </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <h3 style="font-size: 1.05rem; font-weight: 600;">Available Live Shares</h3>
+          <span style="font-size: 0.8rem; color: var(--text-muted);" id="refresh-indicator">Auto-refreshing</span>
         </div>
 
-        <button class="btn btn-primary btn-block" id="btn-connect-receive" style="margin-top: 1.5rem;">
-          Connect &amp; Download
-        </button>
+        <!-- Container for active rooms dynamically populated -->
+        <div id="available-rooms-list" class="rooms-container">
+          <div class="empty-state">
+            <div class="pulse-ring waiting" style="margin: 0 auto 0.75rem;"></div>
+            <p>Searching for live shares...</p>
+            <span style="font-size: 0.75rem; color: var(--text-subtle);">When someone uploads files, it will appear here automatically.</span>
+          </div>
+        </div>
       </div>
 
-      <!-- Receiver Active Session -->
+      <!-- Receiver Active Transfer Session -->
       <div class="card glass session-card" id="receiver-active-session" style="display: none;">
         <div class="session-header">
           <h3 style="font-size: 1.1rem; font-weight: 600;">Direct Transfer</h3>
           <div class="peer-status-pill" id="receiver-peer-status">
-            <div class="pulse-ring waiting"></div>
-            <span class="status-text">Connecting...</span>
+            <div class="pulse-ring connected"></div>
+            <span class="status-text">Connected</span>
           </div>
         </div>
 
@@ -183,7 +167,7 @@
         <div id="received-downloads-list" class="file-list-container"></div>
 
         <button class="btn btn-secondary btn-block" id="btn-leave-receive">
-          Disconnect
+          Disconnect &amp; Back to Rooms
         </button>
       </div>
 
@@ -191,13 +175,20 @@
 
   </main>
 
-  <!-- QR Code Modal -->
-  <div class="modal-overlay" id="qr-modal">
+  <!-- Password Unlock Modal for Selected Room -->
+  <div class="modal-overlay" id="unlock-modal">
     <div class="modal-card">
-      <button class="modal-close" id="btn-close-qr">&times;</button>
-      <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem;">Scan to Join</h3>
-      <p id="qr-room-text" style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;"></p>
-      <div class="qr-canvas-container" id="qr-code-canvas"></div>
+      <button class="modal-close" id="btn-close-unlock">&times;</button>
+      <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem;">Enter Room Password</h3>
+      <p id="unlock-room-desc" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem;"></p>
+      
+      <div class="form-group" style="text-align: left;">
+        <input type="password" id="modal-unlock-password" class="form-input" placeholder="Enter password" autocomplete="current-password">
+      </div>
+
+      <button class="btn btn-primary btn-block" id="btn-confirm-unlock" style="margin-top: 1rem;">
+        Unlock &amp; Download
+      </button>
     </div>
   </div>
 

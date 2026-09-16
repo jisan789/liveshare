@@ -1,24 +1,16 @@
 /**
  * LiveShare App UI and WebSocket Signaling Orchestration
+ * Password-only flow with live available rooms discovery.
  */
 
 // Helper: Format bytes to human readable string
-function formatBytes(bytes, decimals = 2) {
+function formatBytes(bytes, decimals = 1) {
   if (!+bytes) return '0 Bytes';
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
   const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
-}
-
-// Helper: Format seconds to ETA mm:ss
-function formatTime(seconds) {
-  if (!seconds || seconds <= 0) return '0s';
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
 }
 
 // Helper: Hash password with SHA-256
@@ -29,16 +21,6 @@ async function sha256(str) {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Generate random 6-character room code
-function generateRoomCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code = '';
-  for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code.slice(0, 3) + '-' + code.slice(3);
-}
-
 // App State
 const state = {
   activeTab: 'send',
@@ -46,11 +28,11 @@ const state = {
   ws: null,
   isUploader: false,
   roomId: null,
-  password: null,
   peerId: null,
   peers: {}, // peerId -> WebRTCPeer
   pingInterval: null,
-  receivedFiles: []
+  activeRooms: [],
+  targetRoomForUnlock: null
 };
 
 // DOM Elements
@@ -58,35 +40,26 @@ const tabSendBtn = document.getElementById('tab-send-btn');
 const tabReceiveBtn = document.getElementById('tab-receive-btn');
 const sendSection = document.getElementById('send-section');
 const receiveSection = document.getElementById('receive-section');
+const roomsCountBadge = document.getElementById('rooms-count-badge');
 
-// Dropzone & File List
+// Sender Elements
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('file-input');
 const fileListContainer = document.getElementById('file-list');
 const sendPasswordInput = document.getElementById('send-password');
-const sendRoomCodeInput = document.getElementById('send-room-code');
-const btnGenCode = document.getElementById('btn-gen-code');
 const btnStartShare = document.getElementById('btn-start-share');
-
-// Active Session Elements (Sender)
 const senderActiveSession = document.getElementById('sender-active-session');
 const senderConfigCard = document.getElementById('sender-config-card');
-const displayRoomCode = document.getElementById('display-room-code');
-const btnCopyCode = document.getElementById('btn-copy-code');
-const btnCopyLink = document.getElementById('btn-copy-link');
-const btnShowQr = document.getElementById('btn-show-qr');
-const btnStopShare = document.getElementById('btn-stop-share');
 const senderPeerStatus = document.getElementById('sender-peer-status');
 const senderTransferProgress = document.getElementById('sender-transfer-progress');
 const senderProgressFill = document.getElementById('sender-progress-fill');
 const senderProgressPercent = document.getElementById('sender-progress-percent');
 const senderProgressStats = document.getElementById('sender-progress-stats');
 const senderTransferFile = document.getElementById('sender-transfer-file');
+const btnStopShare = document.getElementById('btn-stop-share');
 
 // Receiver Elements
-const receiveRoomCodeInput = document.getElementById('receive-room-code');
-const receivePasswordInput = document.getElementById('receive-password');
-const btnConnectReceive = document.getElementById('btn-connect-receive');
+const availableRoomsList = document.getElementById('available-rooms-list');
 const receiverActiveSession = document.getElementById('receiver-active-session');
 const receiverConfigCard = document.getElementById('receiver-config-card');
 const receiverPeerStatus = document.getElementById('receiver-peer-status');
@@ -99,28 +72,19 @@ const receiverTransferFile = document.getElementById('receiver-transfer-file');
 const receivedDownloadsList = document.getElementById('received-downloads-list');
 const btnLeaveReceive = document.getElementById('btn-leave-receive');
 
-// QR Modal Elements
-const qrModal = document.getElementById('qr-modal');
-const btnCloseQr = document.getElementById('btn-close-qr');
-const qrCanvasContainer = document.getElementById('qr-code-canvas');
-const qrRoomText = document.getElementById('qr-room-text');
+// Unlock Modal Elements
+const unlockModal = document.getElementById('unlock-modal');
+const btnCloseUnlock = document.getElementById('btn-close-unlock');
+const unlockRoomDesc = document.getElementById('unlock-room-desc');
+const modalUnlockPassword = document.getElementById('modal-unlock-password');
+const btnConfirmUnlock = document.getElementById('btn-confirm-unlock');
 
 // Toast Notification
 function showToast(message, type = 'info') {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
-  
-  let iconSvg = '';
-  if (type === 'success') {
-    iconSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>';
-  } else if (type === 'error') {
-    iconSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f43f5e" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
-  } else {
-    iconSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
-  }
-
-  toast.innerHTML = `${iconSvg} <span>${message}</span>`;
+  toast.textContent = message;
   container.appendChild(toast);
 
   setTimeout(() => {
@@ -148,24 +112,6 @@ function switchTab(tab) {
 
 tabSendBtn.addEventListener('click', () => switchTab('send'));
 tabReceiveBtn.addEventListener('click', () => switchTab('receive'));
-
-// Generate Code Button
-btnGenCode.addEventListener('click', () => {
-  sendRoomCodeInput.value = generateRoomCode();
-});
-sendRoomCodeInput.value = generateRoomCode();
-
-// Check for Room query param on load
-window.addEventListener('DOMContentLoaded', () => {
-  const urlParams = new URLSearchParams(window.location.search);
-  const roomParam = urlParams.get('room');
-  if (roomParam) {
-    receiveRoomCodeInput.value = roomParam.toUpperCase();
-    switchTab('receive');
-    receivePasswordInput.focus();
-    showToast(`Loaded share room: ${roomParam.toUpperCase()}. Enter password to join.`, 'info');
-  }
-});
 
 // File Selection & Drag-and-Drop
 fileInput.addEventListener('change', (e) => handleFilesSelected(e.target.files));
@@ -208,7 +154,7 @@ function renderSelectedFiles() {
     item.innerHTML = `
       <div class="file-info">
         <div class="file-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
             <polyline points="14 2 14 8 20 8"></polyline>
           </svg>
@@ -218,12 +164,7 @@ function renderSelectedFiles() {
           <span class="file-meta">${formatBytes(file.size)}</span>
         </div>
       </div>
-      <button class="file-remove-btn" title="Remove file" onclick="removeFile(${index})">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18"></line>
-          <line x1="6" y1="6" x2="18" y2="18"></line>
-        </svg>
-      </button>
+      <button class="file-remove-btn" title="Remove" onclick="removeFile(${index})">&times;</button>
     `;
     fileListContainer.appendChild(item);
   });
@@ -234,7 +175,7 @@ window.removeFile = function(index) {
   renderSelectedFiles();
 };
 
-// WebSocket Signaling connection
+// WebSocket Signaling Connection
 function connectWebSocket() {
   return new Promise((resolve, reject) => {
     if (state.ws && state.ws.readyState === WebSocket.OPEN) {
@@ -248,7 +189,6 @@ function connectWebSocket() {
 
     ws.onopen = () => {
       console.log('Connected to WebSocket signaling server');
-      // Setup heartbeat ping every 25 seconds for Render keepalive
       if (state.pingInterval) clearInterval(state.pingInterval);
       state.pingInterval = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -260,13 +200,11 @@ function connectWebSocket() {
     };
 
     ws.onerror = (err) => {
-      console.error('WebSocket connection error:', err);
-      showToast('Could not connect to signaling server.', 'error');
+      console.error('WebSocket error:', err);
       reject(err);
     };
 
     ws.onclose = () => {
-      console.log('WebSocket closed');
       if (state.pingInterval) clearInterval(state.pingInterval);
     };
 
@@ -276,19 +214,20 @@ function connectWebSocket() {
   });
 }
 
+// Connect immediately on page load to receive live rooms updates
+window.addEventListener('DOMContentLoaded', () => {
+  connectWebSocket().catch(err => console.log('Initial WS connect waiting...'));
+});
+
 // -------------------------------------------------------------
-// SENDER WORKFLOW
+// SENDER WORKFLOW (Password Only)
 // -------------------------------------------------------------
 btnStartShare.addEventListener('click', async () => {
-  const roomCode = sendRoomCodeInput.value.trim().toUpperCase();
   const password = sendPasswordInput.value.trim();
 
-  if (!roomCode) {
-    showToast('Please enter or generate a Room Code.', 'error');
-    return;
-  }
   if (!password) {
-    showToast('Please set a Password for receiver authorization.', 'error');
+    showToast('Please set a password for the receiver.', 'error');
+    sendPasswordInput.focus();
     return;
   }
   if (state.selectedFiles.length === 0) {
@@ -297,14 +236,12 @@ btnStartShare.addEventListener('click', async () => {
   }
 
   btnStartShare.disabled = true;
-  btnStartShare.innerHTML = `<span>Starting Session...</span>`;
+  btnStartShare.textContent = 'Starting Share...';
 
   try {
     const ws = await connectWebSocket();
     const passwordHash = await sha256(password);
     state.isUploader = true;
-    state.roomId = roomCode;
-    state.password = password;
 
     const fileMetadata = state.selectedFiles.map(f => ({
       name: f.name,
@@ -314,40 +251,153 @@ btnStartShare.addEventListener('click', async () => {
 
     ws.send(JSON.stringify({
       type: 'create-room',
-      roomId: roomCode,
       passwordHash: passwordHash,
       fileMetadata: fileMetadata
     }));
   } catch (e) {
     btnStartShare.disabled = false;
-    btnStartShare.innerHTML = `<span>Start P2P Live Share</span>`;
+    btnStartShare.textContent = 'Start Sharing';
+    showToast('Could not start share session.', 'error');
   }
 });
 
+// -------------------------------------------------------------
+// RECEIVER AVAILABLE ROOMS UI & UNLOCK FLOW
+// -------------------------------------------------------------
+function renderAvailableRooms(rooms) {
+  state.activeRooms = rooms;
+  
+  if (rooms.length > 0) {
+    roomsCountBadge.style.display = 'inline-block';
+    roomsCountBadge.textContent = rooms.length;
+  } else {
+    roomsCountBadge.style.display = 'none';
+  }
+
+  if (!rooms || rooms.length === 0) {
+    availableRoomsList.innerHTML = `
+      <div class="empty-state">
+        <div class="pulse-ring waiting" style="margin: 0 auto 0.75rem;"></div>
+        <p>Searching for live shares...</p>
+        <span style="font-size: 0.75rem; color: var(--text-subtle);">When an uploader starts sharing, it will appear here instantly.</span>
+      </div>
+    `;
+    return;
+  }
+
+  availableRoomsList.innerHTML = '';
+  rooms.forEach(room => {
+    const item = document.createElement('div');
+    item.className = 'room-card-item';
+    
+    const fileSummary = room.fileCount === 1 
+      ? `1 file (${formatBytes(room.totalSize)})` 
+      : `${room.fileCount} files (${formatBytes(room.totalSize)})`;
+
+    item.innerHTML = `
+      <div class="room-card-info">
+        <div class="room-card-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent-cyan);">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+          Live Share #${room.roomId.replace('SHARE-', '')}
+        </div>
+        <div class="room-card-meta">${fileSummary}</div>
+      </div>
+      <button class="room-unlock-btn" onclick="openUnlockModal('${room.roomId}', '${fileSummary}')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+        Unlock
+      </button>
+    `;
+    availableRoomsList.appendChild(item);
+  });
+}
+
+window.openUnlockModal = function(roomId, fileSummary) {
+  state.targetRoomForUnlock = roomId;
+  unlockRoomDesc.textContent = `${fileSummary}. Enter the uploader's password to connect.`;
+  modalUnlockPassword.value = '';
+  unlockModal.classList.add('active');
+  setTimeout(() => modalUnlockPassword.focus(), 100);
+};
+
+btnCloseUnlock.addEventListener('click', () => {
+  unlockModal.classList.remove('active');
+});
+
+unlockModal.addEventListener('click', (e) => {
+  if (e.target === unlockModal) unlockModal.classList.remove('active');
+});
+
+modalUnlockPassword.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') btnConfirmUnlock.click();
+});
+
+btnConfirmUnlock.addEventListener('click', async () => {
+  const password = modalUnlockPassword.value.trim();
+  const roomId = state.targetRoomForUnlock;
+
+  if (!password) {
+    showToast('Please enter the room password.', 'error');
+    modalUnlockPassword.focus();
+    return;
+  }
+
+  btnConfirmUnlock.disabled = true;
+  btnConfirmUnlock.textContent = 'Verifying...';
+
+  try {
+    const ws = await connectWebSocket();
+    const passwordHash = await sha256(password);
+    state.isUploader = false;
+    state.roomId = roomId;
+
+    ws.send(JSON.stringify({
+      type: 'join-room',
+      roomId: roomId,
+      passwordHash: passwordHash
+    }));
+  } catch (e) {
+    btnConfirmUnlock.disabled = false;
+    btnConfirmUnlock.textContent = 'Unlock & Download';
+  }
+});
+
+// -------------------------------------------------------------
+// SIGNALING MESSAGE HANDLER
+// -------------------------------------------------------------
 function handleSignalingMessage(msg) {
-  console.log('[Signaling Received]', msg.type, msg);
+  // Live Rooms Broadcast
+  if (msg.type === 'active-rooms-update') {
+    renderAvailableRooms(msg.rooms || []);
+    return;
+  }
 
   if (msg.type === 'error') {
     showToast(msg.message, 'error');
     btnStartShare.disabled = false;
-    btnStartShare.innerHTML = `<span>Start P2P Live Share</span>`;
-    btnConnectReceive.disabled = false;
-    btnConnectReceive.innerHTML = `<span>Join & Start Download</span>`;
+    btnStartShare.textContent = 'Start Sharing';
+    btnConfirmUnlock.disabled = false;
+    btnConfirmUnlock.textContent = 'Unlock & Download';
     return;
   }
 
+  // UPLOADER: Room created
   if (msg.type === 'room-created') {
+    state.roomId = msg.roomId;
     state.peerId = msg.peerId;
     senderConfigCard.style.display = 'none';
     senderActiveSession.style.display = 'flex';
-    displayRoomCode.textContent = state.roomId;
-    showToast(`Share room ${state.roomId} is ready!`, 'success');
+    showToast('Share is now live! Receivers can unlock on the Receive tab.', 'success');
   }
 
-  // UPLOADER: Receiver joined -> Create WebRTC Offer
+  // UPLOADER: Receiver joined room -> Start WebRTC Offer
   if (msg.type === 'receiver-joined') {
     const receiverPeerId = msg.peerId;
-    showToast(`Receiver connected! Initializing direct P2P link...`, 'info');
+    showToast('Receiver connected! Starting P2P file transfer...', 'info');
     updatePeerStatusUI(senderPeerStatus, 'connected', 'Peer Connected (Transferring)');
 
     const peer = new WebRTCPeer(
@@ -362,20 +412,17 @@ function handleSignalingMessage(msg) {
       },
       (peerId, status) => {
         if (status === 'connected') {
-          updatePeerStatusUI(senderPeerStatus, 'connected', 'P2P Direct Connected');
+          updatePeerStatusUI(senderPeerStatus, 'connected', 'Direct Transfer Active');
           senderTransferProgress.style.display = 'block';
-          // Begin file transfer
           peer.sendFiles(state.selectedFiles).catch(err => {
-            console.error('Send files error:', err);
-            showToast('Transfer encountered an error.', 'error');
+            console.error('Send error:', err);
+            showToast('Transfer error encountered.', 'error');
           });
         } else if (status === 'disconnected') {
-          updatePeerStatusUI(senderPeerStatus, 'waiting', 'Waiting for Receiver...');
+          updatePeerStatusUI(senderPeerStatus, 'waiting', 'Waiting for receiver...');
         }
       },
-      (progress) => {
-        updateSenderProgress(progress);
-      },
+      (progress) => updateSenderProgress(progress),
       () => {}
     );
 
@@ -383,20 +430,23 @@ function handleSignalingMessage(msg) {
     peer.createOffer();
   }
 
-  // RECEIVER: Room joined successfully
+  // RECEIVER: Room unlocked & joined
   if (msg.type === 'room-joined') {
+    unlockModal.classList.remove('active');
+    btnConfirmUnlock.disabled = false;
+    btnConfirmUnlock.textContent = 'Unlock & Download';
+
     state.peerId = msg.peerId;
     receiverConfigCard.style.display = 'none';
     receiverActiveSession.style.display = 'flex';
     renderReceiverManifest(msg.fileMetadata);
-    updatePeerStatusUI(receiverPeerStatus, 'waiting', 'Connecting to Uploader P2P...');
-    showToast('Joined room! Handshaking P2P connection...', 'success');
+    updatePeerStatusUI(receiverPeerStatus, 'waiting', 'Establishing direct P2P link...');
+    showToast('Unlocked! Receiving files directly...', 'success');
 
-    // Setup receiver peer connection
     const uploaderId = msg.uploaderId;
     const peer = new WebRTCPeer(
       uploaderId,
-      false, // not initiator
+      false, // receiver is not initiator
       (targetId, signalData) => {
         state.ws.send(JSON.stringify({
           type: 'signal',
@@ -406,24 +456,20 @@ function handleSignalingMessage(msg) {
       },
       (peerId, status) => {
         if (status === 'connected') {
-          updatePeerStatusUI(receiverPeerStatus, 'connected', 'P2P Direct Link Active');
+          updatePeerStatusUI(receiverPeerStatus, 'connected', 'Direct Transfer Active');
           receiverTransferProgress.style.display = 'block';
         } else if (status === 'disconnected') {
-          updatePeerStatusUI(receiverPeerStatus, 'waiting', 'Uploader Disconnected');
+          updatePeerStatusUI(receiverPeerStatus, 'waiting', 'Uploader disconnected');
         }
       },
-      (progress) => {
-        updateReceiverProgress(progress);
-      },
-      (fileMeta, blob) => {
-        handleFileReceived(fileMeta, blob);
-      }
+      (progress) => updateReceiverProgress(progress),
+      (fileMeta, blob) => handleFileReceived(fileMeta, blob)
     );
 
     state.peers[uploaderId] = peer;
   }
 
-  // SIGNAL RELAY (Offer, Answer, ICE Candidates)
+  // SIGNAL RELAY
   if (msg.type === 'signal') {
     const senderId = msg.senderPeerId;
     const signalData = msg.signalData;
@@ -442,66 +488,24 @@ function handleSignalingMessage(msg) {
 
   if (msg.type === 'uploader-disconnected') {
     showToast(msg.message, 'error');
-    updatePeerStatusUI(receiverPeerStatus, 'disconnected', 'Uploader Left Session');
+    updatePeerStatusUI(receiverPeerStatus, 'disconnected', 'Session Ended');
   }
 
   if (msg.type === 'receiver-disconnected') {
-    showToast(`Receiver disconnected.`, 'info');
     if (state.peers[msg.peerId]) {
       state.peers[msg.peerId].close();
       delete state.peers[msg.peerId];
     }
-    updatePeerStatusUI(senderPeerStatus, 'waiting', 'Waiting for Receiver...');
+    updatePeerStatusUI(senderPeerStatus, 'waiting', 'Waiting for receiver...');
   }
 }
 
 // -------------------------------------------------------------
-// RECEIVER WORKFLOW
+// RECEIVER FILE DOWNLOAD HANDLERS
 // -------------------------------------------------------------
-btnConnectReceive.addEventListener('click', async () => {
-  const roomCode = receiveRoomCodeInput.value.trim().toUpperCase();
-  const password = receivePasswordInput.value.trim();
-
-  if (!roomCode) {
-    showToast('Please enter the Room Code.', 'error');
-    return;
-  }
-  if (!password) {
-    showToast('Please enter the Room Password.', 'error');
-    return;
-  }
-
-  btnConnectReceive.disabled = true;
-  btnConnectReceive.innerHTML = `<span>Joining Room...</span>`;
-
-  try {
-    const ws = await connectWebSocket();
-    const passwordHash = await sha256(password);
-    state.isUploader = false;
-    state.roomId = roomCode;
-
-    ws.send(JSON.stringify({
-      type: 'join-room',
-      roomId: roomCode,
-      passwordHash: passwordHash
-    }));
-  } catch (e) {
-    btnConnectReceive.disabled = false;
-    btnConnectReceive.innerHTML = `<span>Join & Start Download</span>`;
-  }
-});
-
 function renderReceiverManifest(files) {
   receiverFileManifest.innerHTML = '';
   if (!files || files.length === 0) return;
-
-  const totalSize = files.reduce((acc, f) => acc + f.size, 0);
-  const header = document.createElement('div');
-  header.style.marginBottom = '0.5rem';
-  header.style.fontSize = '0.9rem';
-  header.style.color = 'var(--text-muted)';
-  header.textContent = `Files offered by uploader (${files.length} items, ${formatBytes(totalSize)}):`;
-  receiverFileManifest.appendChild(header);
 
   files.forEach(file => {
     const item = document.createElement('div');
@@ -509,7 +513,7 @@ function renderReceiverManifest(files) {
     item.innerHTML = `
       <div class="file-info">
         <div class="file-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
             <polyline points="14 2 14 8 20 8"></polyline>
           </svg>
@@ -525,10 +529,7 @@ function renderReceiverManifest(files) {
 }
 
 function handleFileReceived(fileMeta, blob) {
-  state.receivedFiles.push({ meta: fileMeta, blob });
   const url = URL.createObjectURL(blob);
-
-  // Auto download file
   const a = document.createElement('a');
   a.href = url;
   a.download = fileMeta.name;
@@ -536,25 +537,24 @@ function handleFileReceived(fileMeta, blob) {
   a.click();
   document.body.removeChild(a);
 
-  showToast(`Successfully received: ${fileMeta.name}`, 'success');
+  showToast(`Downloaded: ${fileMeta.name}`, 'success');
 
-  // Render download card in list
   const item = document.createElement('div');
   item.className = 'file-item';
   item.style.borderColor = 'rgba(16, 185, 129, 0.4)';
   item.innerHTML = `
     <div class="file-info">
-      <div class="file-icon" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald);">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <div class="file-icon" style="color: var(--accent-emerald);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M20 6L9 17l-5-5"/>
         </svg>
       </div>
       <div class="file-details">
         <span class="file-name">${fileMeta.name}</span>
-        <span class="file-meta">${formatBytes(fileMeta.size)} - Downloaded</span>
+        <span class="file-meta">${formatBytes(fileMeta.size)} &bull; Saved</span>
       </div>
     </div>
-    <a href="${url}" download="${fileMeta.name}" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+    <a href="${url}" download="${fileMeta.name}" class="btn btn-secondary" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;">
       Save Again
     </a>
   `;
@@ -562,18 +562,14 @@ function handleFileReceived(fileMeta, blob) {
 }
 
 // -------------------------------------------------------------
-// UI PROGRESS UPDATERS
+// PROGRESS & STATUS HELPERS
 // -------------------------------------------------------------
 function updatePeerStatusUI(el, status, text) {
   if (!el) return;
   const ring = el.querySelector('.pulse-ring');
   const txt = el.querySelector('.status-text');
-  if (ring) {
-    ring.className = `pulse-ring ${status}`;
-  }
-  if (txt) {
-    txt.textContent = text;
-  }
+  if (ring) ring.className = `pulse-ring ${status}`;
+  if (txt) txt.textContent = text;
 }
 
 function updateSenderProgress(p) {
@@ -583,14 +579,14 @@ function updateSenderProgress(p) {
     senderProgressPercent.textContent = `${p.percent}%`;
     senderProgressStats.innerHTML = `
       <span>${formatBytes(p.sentBytes)} / ${formatBytes(p.totalBytes)}</span>
-      <span>${formatBytes(p.speed)}/s &bull; ETA: ${formatTime(p.eta)}</span>
+      <span>${formatBytes(p.speed)}/s</span>
     `;
   } else if (p.type === 'all-complete') {
-    senderTransferFile.textContent = 'All files transferred successfully!';
+    senderTransferFile.textContent = 'All files transferred!';
     senderProgressFill.style.width = '100%';
     senderProgressPercent.textContent = '100%';
-    senderProgressStats.innerHTML = `<span style="color: var(--accent-emerald); font-weight: 600;">Transfer Complete!</span>`;
-    showToast('All files sent peer-to-peer successfully!', 'success');
+    senderProgressStats.innerHTML = `<span style="color: var(--accent-emerald); font-weight: 600;">Complete</span>`;
+    showToast('All files sent successfully!', 'success');
   }
 }
 
@@ -605,66 +601,20 @@ function updateReceiverProgress(p) {
     receiverProgressPercent.textContent = `${p.percent}%`;
     receiverProgressStats.innerHTML = `
       <span>${formatBytes(p.transferredBytes)} / ${formatBytes(p.totalBytes)}</span>
-      <span>${formatBytes(p.speed)}/s &bull; ETA: ${formatTime(p.eta)}</span>
+      <span>${formatBytes(p.speed)}/s</span>
     `;
   } else if (p.type === 'all-complete') {
     receiverTransferFile.textContent = 'All downloads finished!';
     receiverProgressFill.style.width = '100%';
     receiverProgressPercent.textContent = '100%';
-    receiverProgressStats.innerHTML = `<span style="color: var(--accent-emerald); font-weight: 600;">All files downloaded!</span>`;
+    receiverProgressStats.innerHTML = `<span style="color: var(--accent-emerald); font-weight: 600;">Complete</span>`;
   }
 }
 
-// -------------------------------------------------------------
-// SHARE ACTIONS & QR CODE
-// -------------------------------------------------------------
-btnCopyCode.addEventListener('click', () => {
-  if (state.roomId) {
-    navigator.clipboard.writeText(state.roomId).then(() => {
-      showToast('Room code copied to clipboard!', 'success');
-    });
-  }
-});
-
-btnCopyLink.addEventListener('click', () => {
-  if (state.roomId) {
-    const shareUrl = `${window.location.origin}/?room=${state.roomId}`;
-    navigator.clipboard.writeText(shareUrl).then(() => {
-      showToast('Shareable link copied to clipboard!', 'success');
-    });
-  }
-});
-
-btnShowQr.addEventListener('click', () => {
-  if (!state.roomId) return;
-  const shareUrl = `${window.location.origin}/?room=${state.roomId}`;
-  qrRoomText.textContent = `Room: ${state.roomId} (Password: ${state.password})`;
-  
-  // Render QR Code using lightweight API or canvas
-  qrCanvasContainer.innerHTML = '';
-  const qrImg = document.createElement('img');
-  qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(shareUrl)}`;
-  qrImg.alt = 'QR Code';
-  qrImg.style.display = 'block';
-  qrCanvasContainer.appendChild(qrImg);
-
-  qrModal.classList.add('active');
-});
-
-btnCloseQr.addEventListener('click', () => {
-  qrModal.classList.remove('active');
-});
-
-qrModal.addEventListener('click', (e) => {
-  if (e.target === qrModal) qrModal.classList.remove('active');
-});
-
 btnStopShare.addEventListener('click', () => {
-  if (confirm('Are you sure you want to stop sharing and close the session?')) {
-    window.location.reload();
-  }
+  window.location.reload();
 });
 
 btnLeaveReceive.addEventListener('click', () => {
-  window.location.href = window.location.origin;
+  window.location.reload();
 });

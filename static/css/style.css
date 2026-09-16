@@ -270,6 +270,7 @@ main {
 
 /* Dropzone Area */
 .dropzone {
+  display: block;
   border: 2px dashed rgba(99, 102, 241, 0.35);
   border-radius: var(--radius-md);
   padding: 3rem 2rem;

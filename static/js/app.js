@@ -167,8 +167,7 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// Dropzone & File Selection
-dropzone.addEventListener('click', () => fileInput.click());
+// File Selection & Drag-and-Drop
 fileInput.addEventListener('change', (e) => handleFilesSelected(e.target.files));
 
 dropzone.addEventListener('dragover', (e) => {
@@ -450,7 +449,7 @@ function handleSignalingMessage(msg) {
     showToast(`Receiver disconnected.`, 'info');
     if (state.peers[msg.peerId]) {
       state.peers[msg.peerId].close();
-      del state.peers[msg.peerId];
+      delete state.peers[msg.peerId];
     }
     updatePeerStatusUI(senderPeerStatus, 'waiting', 'Waiting for Receiver...');
   }

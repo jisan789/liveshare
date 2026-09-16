@@ -67,9 +67,9 @@
       
       <!-- Sender Configuration Card -->
       <div class="card glass" id="sender-config-card">
-        <!-- Dropzone -->
-        <div class="dropzone" id="dropzone">
-          <input type="file" id="file-input" class="file-input-hidden" multiple>
+        <!-- Dropzone (Native Label) -->
+        <input type="file" id="file-input" class="file-input-hidden" multiple>
+        <label class="dropzone" id="dropzone" for="file-input">
           <div class="dropzone-icon">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -77,9 +77,9 @@
               <line x1="12" y1="3" x2="12" y2="15"></line>
             </svg>
           </div>
-          <h3>Drag & Drop files here, or browse</h3>
+          <h3>Drag &amp; Drop files here, or browse</h3>
           <p>Support for any file type and size. Transfer happens in real-time browser-to-browser.</p>
-        </div>
+        </label>
 
         <!-- Selected Files List -->
         <div id="file-list" class="file-list-container"></div>
